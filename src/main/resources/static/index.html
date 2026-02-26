@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Spring Boot Mini Golf</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #e8f5e9;
+            color: #2e7d32;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 { margin-bottom: 5px; }
+        .container {
+            display: flex;
+            gap: 20px;
+            margin-top: 10px;
+        }
+        canvas {
+            background-color: #81c784; /* Grass */
+            border: 8px solid #388e3c;
+            border-radius: 15px;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+            cursor: crosshair;
+        }
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            width: 250px;
+        }
+        .leaderboard, .controls {
+            background: white;
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+        }
+        h2 { margin-top: 0; border-bottom: 2px solid #81c784; padding-bottom: 10px; font-size: 1.2rem;}
+        ol { padding-left: 20px; margin-bottom: 0; }
+        li { margin-bottom: 8px; font-weight: bold; }
+        .strokes { color: #d32f2f; }
+        .instructions { background: #fff3e0; padding: 10px; border-radius: 10px; font-size: 0.9rem;}
+        button {
+            background-color: #2e7d32; color: white; border: none; padding: 10px;
+            border-radius: 8px; font-weight: bold; cursor: pointer; width: 100%;
+        }
+        button:hover { background-color: #1b5e20; }
+        .legend { font-size: 0.8rem; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+    <h1>Mini Golf</h1>
+    <p>Strokes: <strong id="strokeCount" style="font-size: 24px;">0</strong></p>
+
+    <div class="container">
+        <!-- The Game Canvas -->
+        <div>
+            <canvas id="gameCanvas" width="800" height="500"></canvas>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="controls">
+                <h2>🎮 Controls</h2>
+                <div class="instructions">
+                    Drag backwards from the ball to aim and shoot.
+                </div>
+                <div class="legend">
+                    🟦 <strong>Water:</strong> Resets position<br>
+                    🟨 <strong>Sand:</strong> Slows ball down<br>
+                    🟫 <strong>Walls:</strong> Bounce off them!
+                </div>
+                <button onclick="generateCourse()" style="margin-top: 15px;">🎲 Generate New Course</button>
+            </div>
+
+            <div class="leaderboard">
+                <h2>Leaderboard</h2>
+                <ol id="scoreList">
+                    <li>Loading...</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- 1. GAME VARIABLES ---
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+        
+        let strokes = 0;
+        let gameOver = false;
+        let isDragging = false;
+        let dragStart = { x: 0, y: 0 };
+        let mousePos = { x: 0, y: 0 };
+
+        const startPos = { x: 50, y: 250 };
+        const hole = { x: 750, y: 250, radius: 12 };
+        let ball = { x: startPos.x, y: startPos.y, vx: 0, vy: 0, radius: 8 };
+
+        // Procedural arrays
+        let walls = [];
+        let waters = [];
+        let sands = [];
+
+        // --- 2. COURSE GENERATOR ---
+        function generateCourse() {
+            walls = []; waters = []; sands = [];
+            ball.x = startPos.x; ball.y = startPos.y;
+            ball.vx = 0; ball.vy = 0;
+            strokes = 0;
+            gameOver = false;
+            document.getElementById("strokeCount").innerText = strokes;
+
+            // Generate Sand Traps
+            for(let i=0; i<4; i++) {
+                sands.push({
+                    x: Math.random() * 500 + 100, // Keep in the middle area
+                    y: Math.random() * 400 + 10,
+                    w: Math.random() * 100 + 50,
+                    h: Math.random() * 100 + 50
+                });
+            }
+
+            // Generate Walls
+            for(let i=0; i<6; i++) {
+                walls.push({
+                    x: Math.random() * 500 + 120,
+                    y: Math.random() * 400 + 10,
+                    w: Math.random() * 30 + 10,  // thin
+                    h: Math.random() * 100 + 50  // tall
+                });
+                // Add some horizontal walls too
+                walls.push({
+                    x: Math.random() * 500 + 120,
+                    y: Math.random() * 400 + 10,
+                    w: Math.random() * 100 + 50, // wide
+                    h: Math.random() * 30 + 10   // short
+                });
+            }
+
+            // Generate Water Hazards
+            for(let i=0; i<3; i++) {
+                waters.push({
+                    x: Math.random() * 500 + 150,
+                    y: Math.random() * 400 + 50,
+                    radius: Math.random() * 30 + 20
+                });
+            }
+        }
+
+        // --- 3. INPUT HANDLING ---
+        canvas.addEventListener('mousedown', e => {
+            if(gameOver || Math.hypot(ball.vx, ball.vy) > 0.1) return; 
+            isDragging = true;
+            dragStart = getMousePos(e);
+        });
+
+        canvas.addEventListener('mousemove', e => {
+            if(isDragging) mousePos = getMousePos(e);
+        });
+
+        canvas.addEventListener('mouseup', e => {
+            if(!isDragging) return;
+            isDragging = false;
+            let dragEnd = getMousePos(e);
+            let dx = dragStart.x - dragEnd.x;
+            let dy = dragStart.y - dragEnd.y;
+            
+            if(Math.hypot(dx, dy) > 5) {
+                ball.vx = dx * 0.15; // Increased power slightly for bigger course
+                ball.vy = dy * 0.15;
+                
+                // Cap maximum speed to prevent glitching through walls
+                let speed = Math.hypot(ball.vx, ball.vy);
+                if (speed > 25) {
+                    ball.vx = (ball.vx / speed) * 25;
+                    ball.vy = (ball.vy / speed) * 25;
+                }
+                
+                strokes++;
+                document.getElementById("strokeCount").innerText = strokes;
+            }
+        });
+
+        function getMousePos(e) {
+            let rect = canvas.getBoundingClientRect();
+            return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+        }
+
+        // --- 4. PHYSICS & LOGIC LOOP ---
+        function update() {
+            if(gameOver) return;
+
+            // Move ball
+            ball.x += ball.vx;
+            ball.y += ball.vy;
+
+            // 1. Friction Logic (Check if in sand)
+            let inSand = false;
+            for(let s of sands) {
+                if(ball.x > s.x && ball.x < s.x + s.w && ball.y > s.y && ball.y < s.y + s.h) {
+                    inSand = true;
+                    break;
+                }
+            }
+            let friction = inSand ? 0.90 : 0.985; // Sand kills momentum fast
+            ball.vx *= friction;
+            ball.vy *= friction;
+
+            if(Math.abs(ball.vx) < 0.05) ball.vx = 0;
+            if(Math.abs(ball.vy) < 0.05) ball.vy = 0;
+
+            // 2. Canvas Boundary Collisions
+            if(ball.x - ball.radius < 0) { ball.x = ball.radius; ball.vx *= -0.8; }
+            if(ball.x + ball.radius > canvas.width) { ball.x = canvas.width - ball.radius; ball.vx *= -0.8; }
+            if(ball.y - ball.radius < 0) { ball.y = ball.radius; ball.vy *= -0.8; }
+            if(ball.y + ball.radius > canvas.height) { ball.y = canvas.height - ball.radius; ball.vy *= -0.8; }
+
+            // 3. Wall Collisions (AABB vs Circle)
+            for(let w of walls) {
+                // Find closest point in rectangle to the circle center
+                let closestX = Math.max(w.x, Math.min(ball.x, w.x + w.w));
+                let closestY = Math.max(w.y, Math.min(ball.y, w.y + w.h));
+                
+                let dx = ball.x - closestX;
+                let dy = ball.y - closestY;
+                
+                // If distance is less than radius, we have a collision
+                if((dx * dx + dy * dy) < (ball.radius * ball.radius)) {
+                    // Determine which side we hit to bounce correctly
+                    if(Math.abs(dx) > Math.abs(dy)) {
+                        ball.vx *= -0.8; // Reverse X
+                        ball.x = closestX + (dx > 0 ? ball.radius : -ball.radius); // Push out
+                    } else {
+                        ball.vy *= -0.8; // Reverse Y
+                        ball.y = closestY + (dy > 0 ? ball.radius : -ball.radius); // Push out
+                    }
+                }
+            }
+
+            // 4. Water Hazard Collision
+            for(let w of waters) {
+                if(Math.hypot(ball.x - w.x, ball.y - w.y) < w.radius) {
+                    // Penalty! Reset to start, stop moving
+                    ball.x = startPos.x;
+                    ball.y = startPos.y;
+                    ball.vx = 0; ball.vy = 0;
+                }
+            }
+
+            // 5. Hole Collision (WIN!)
+            if(Math.hypot(ball.x - hole.x, ball.y - hole.y) < hole.radius) {
+                gameOver = true;
+                ball.vx = 0; ball.vy = 0;
+                ball.x = hole.x; ball.y = hole.y; 
+                setTimeout(handleWin, 400);
+            }
+        }
+
+        // --- 5. RENDER LOOP ---
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw Start Zone Indicator
+            ctx.beginPath();
+            ctx.arc(startPos.x, startPos.y, 20, 0, Math.PI * 2);
+            ctx.fillStyle = "rgba(255, 255, 255, 0.2)";
+            ctx.fill();
+
+            // Draw Sand Traps
+            sands.forEach(s => {
+                ctx.fillStyle = "#e6ce8a"; // Sand color
+                ctx.fillRect(s.x, s.y, s.w, s.h);
+            });
+
+            // Draw Water Hazards
+            waters.forEach(w => {
+                ctx.beginPath();
+                ctx.arc(w.x, w.y, w.radius, 0, Math.PI * 2);
+                ctx.fillStyle = "#4fc3f7"; 
+                ctx.fill();
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = "#0288d1";
+                ctx.stroke();
+            });
+
+            // Draw Walls
+            walls.forEach(w => {
+                ctx.fillStyle = "#795548"; // Wood/Brick color
+                ctx.fillRect(w.x, w.y, w.w, w.h);
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = "#4e342e";
+                ctx.strokeRect(w.x, w.y, w.w, w.h);
+            });
+
+            // Draw Hole
+            ctx.beginPath();
+            ctx.arc(hole.x, hole.y, hole.radius, 0, Math.PI * 2);
+            ctx.fillStyle = "#1b5e20";
+            ctx.fill();
+            // Flag pole
+            ctx.fillStyle = "white";
+            ctx.fillRect(hole.x - 2, hole.y - 30, 4, 30);
+            // Flag
+            ctx.fillStyle = "#f44336";
+            ctx.beginPath();
+            ctx.moveTo(hole.x, hole.y - 30);
+            ctx.lineTo(hole.x + 20, hole.y - 20);
+            ctx.lineTo(hole.x, hole.y - 10);
+            ctx.fill();
+
+            // Draw Aiming Line
+            if(isDragging) {
+                ctx.beginPath();
+                ctx.moveTo(ball.x, ball.y);
+                let dx = dragStart.x - mousePos.x;
+                let dy = dragStart.y - mousePos.y;
+                ctx.lineTo(ball.x + dx, ball.y + dy);
+                ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
+                ctx.lineWidth = 3;
+                ctx.setLineDash([5, 5]);
+                ctx.stroke();
+                ctx.setLineDash([]); 
+            }
+
+            // Draw Ball
+            ctx.beginPath();
+            ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+            ctx.fillStyle = "#ffffff";
+            ctx.fill();
+            ctx.lineWidth = 1;
+            ctx.strokeStyle = "#999";
+            ctx.stroke();
+        }
+
+        function loop() {
+            update();
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        // --- 6. SPRING BOOT INTEGRATION ---
+        function handleWin() {
+            let name = prompt(`Course complete in ${strokes} strokes! Enter your name for the leaderboard:`);
+            if (name) {
+                fetch('/api/scores', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ playerName: name, strokes: strokes })
+                }).then(() => {
+                    loadLeaderboard();
+                    generateCourse(); // Auto-generate new course after win
+                });
+            } else {
+                generateCourse();
+            }
+        }
+
+        function loadLeaderboard() {
+            fetch('/api/scores')
+                .then(res => res.json())
+                .then(data => {
+                    const list = document.getElementById('scoreList');
+                    list.innerHTML = '';
+                    if(data.length === 0) list.innerHTML = "<li>No scores yet!</li>";
+                    
+                    data.forEach(score => {
+                        let li = document.createElement('li');
+                        li.innerHTML = `${score.playerName} <span class="strokes">(${score.strokes} strokes)</span>`;
+                        list.appendChild(li);
+                    });
+                });
+        }
+
+        // Initialize
+        loadLeaderboard();
+        generateCourse();
+        loop();
+    </script>
+</body>
+</html>
