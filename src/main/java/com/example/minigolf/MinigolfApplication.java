@@ -38,7 +38,7 @@ interface ScoreRepository extends JpaRepository<Score, Long> {
 @RestController
 @RequestMapping("/api/scores")
 class ScoreController {
-
+    // this is a simple controller to handle score submissions and retrievals
     private final ScoreRepository repository;
 
     public ScoreController(ScoreRepository repository) {
